@@ -1,0 +1,170 @@
+# gbRememberMe plugin #
+
+The `gbRememberMe` is a Symfony plugin that changes the behavior of the 
+"remember me" feature of the `sfDoctrineGuard` plugin, allowing to remember 
+multiple browser instances on multiple computers and detecting cookie theft.
+
+## Installation ##
+
+  * Install the plugin (via a package)
+
+        symfony plugin:install gbRememberMePlugin
+
+  * Install the plugin (via a Git checkout)
+  
+        git checkout git://github.com/gbirke/gbRememberMe.git plugins/gbRememberMePlugin
+
+  * Activate the plugin in the `config/ProjectConfiguration.class.php`
+  
+        [php]
+        class ProjectConfiguration extends sfProjectConfiguration
+        {
+          public function setup()
+          {
+            $this->enablePlugins(array(
+              'sfDoctrinePlugin', 
+              'sfDoctrineGuardPlugin',
+              'gbRememberMePlugin',
+              '...'
+            ));
+          }
+        }
+
+  * Rebuild your model
+
+        symfony doctrine:build-model
+        symfony doctrine:build-sql
+
+  * Update you database tables by starting from scratch (it will delete all
+    the existing tables, then re-create them):
+
+        symfony doctrine:insert-sql
+
+    or do everything with one command
+
+        symfony doctrine-build-all-reload frontend
+
+    or you can just create the new tables by using the generated SQL
+    statements in `data/sql/plugins.sfGuardAuth.lib.model.schema.sql`
+
+  * If you want to enable a warning page when cookie theft has occured, or the 
+    option for the user to remove all his stored login tokens, enable 
+    the `gbSecurity` module in your `settings.yml` of your application 
+    
+              all:
+                .settings:
+                  enabled_modules:      [default, sfGuardAuth, gbSecurity]
+
+  * Clear your cache
+
+        symfony cc
+
+  * Add the "Remember Me" filter to `filters.yml` above the security filter:
+
+        [yml]
+        remember_me:
+          class: gbRememberMeFilter
+
+        security: ~
+
+  * Change the parent class in `myUser.class.php`
+
+        class myUser extends gbSecurityUser
+        {
+        }
+
+## Customize gbSecurity module templates ##
+
+By default, `gbSecurity` module comes with 2 very simple templates:
+
+  * `warningSuccess.php` contains the warning the user receives when a cookie 
+     theft has been detected.
+  * `overviewSuccess.php` contains the page where a user sees how many 
+     "remember me" tokens are stored and can clear them.
+
+If you want to customize one of these templates:
+
+  * Create a `gbSecurity` module in your application (don't use the
+    `init-module` task, just create a `gbSecurity` directory)
+
+  * Create a template with the name of the template you want to customize in
+    the `gbSecurity/templates` directory
+
+  * Symfony now renders your template instead of the default one
+
+## `gbSecurityUser` class ##
+
+This class inherits from the `sfGuardSecurityUser` class from `sfGuardAuth`
+and is used for the `user` object in your symfony application. (because you
+changed the `myUser` base class earlier).
+
+The only methods that have been changed are the `signIn` and `signOut` methods
+to accomodate the new "remember me" scheme. The `signIn` method of 
+`sfGuardSecurityUser` is always called with the `$remember` param set to `false`.
+
+## Change the name or expiration period of the "Remember Me" cookie ##
+
+By default, the "Remember Me" feature creates a cookie named `gbRemember`
+that will last 30 days.  You can change this behavior in `app.yml`:
+
+    all:
+      gb_remember_me_plugin:
+         token_expiration_age:  1296000   # 15 days in seconds
+         cookie_name:           myAppRememberMe
+
+## Detecting that a user has not logged in with his credentials ##
+
+When a user logs in via "remember me" cookie, you can't be sure he is really 
+whom he claims to be. So before any "dangerous" action in your application 
+(change credentials, see stored credit card information) you should check how
+the user has logged in and ask again for his credentials if he logged in with
+the "remember me" function:
+
+    [php]
+    // In your "dangerous" action
+    if($this->getUser()->getAttribute('logged_in_with_remember_me', false)) {
+      // Store current action and params
+      // forward to an action where the user must enter his credentials
+    }
+
+## How does the cookie theft protection work? ##
+
+The regular "remember me" function works by storing a unique 128-bit
+persistent token in a cookie. The token is also stored in the database,
+together with the user id. When the cookie exists in a request, the user is
+logged in without needing credentials. The login token can be sniffed from the
+HTTP headers or stolen from the server when an attacker gets access to the
+token database. The attacker can then impersonate the users. There is no
+protection against that, but a theft can be detected by storing a second
+token, that is regenerated on every login. In the best case the user logs in
+before the attacker, the token of the attacker gets invalid and he can't log
+in. In the worst case the attacker logs in first. When the user logs in, his
+token is invalid and he can be informed of the security breach.
+
+In either case, when an invalid token is encountered, all "remember me" tokens
+should be purged from the database. If you have activated the `gbSecurity` 
+module, the `warning` action where does that for you. When an invalid token
+is detected, the visitor is redirected to that action.
+
+This method has been described in the blog article 
+"[Improved persistent login cookie best practice][1]". Other than described in 
+the article `gbRememberMePlugin` does not store the user id in the cookie for
+security reasons.
+
+The cookie that is set is marked "HTTP only" so it can't be read via JavaScript.
+This is another security improvement compared to the "remember me" function of
+`sfGuardAuth`.
+
+## Future plans ##
+
+For increased security, I'd like to incorporate different "salts" into the 
+token:
+
+  * the user agent 
+  * the ip address
+  * a random string
+
+The cookie contains the unsalted tokens, db contains the salted tokens, making
+it even more difficult for an attacker to impersonate a user. 
+
+[1][http://jaspan.com/improved%5Fpersistent%5Flogin%5Fcookie%5Fbest%5Fpractice]

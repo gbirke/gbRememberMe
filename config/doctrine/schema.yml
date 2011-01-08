@@ -1,0 +1,16 @@
+gbRememberMeToken:
+  options:
+    symfony:
+      form:   false
+      filter: false
+  columns:
+    user_id: integer
+    token: string(32)
+    persistent_token: string(32)
+    expires: timestamp
+  relations:
+    User:
+      class: sfGuardUser
+      local: user_id
+      foreignAlias: RememberTokens
+      onDelete: CASCADE
